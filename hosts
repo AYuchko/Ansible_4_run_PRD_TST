@@ -1,0 +1,45 @@
+[Test_zone]
+ACC ansible_host=10.136.137.48
+STG ansible_host=10.136.136.48
+
+[Citrix_Stg]
+MIV1 ansible_host=10.136.138.41
+MIV2 ansible_host=10.136.138.42
+
+[Prd_A]
+A001 ansible_host=10.136.192.41
+A002 ansible_host=10.136.192.42
+
+[Prd_B]
+B001 ansible_host=10.136.192.61
+B002 ansible_host=10.136.192.62
+
+[Dmz_A]
+A109 ansible_host=10.136.143.41
+
+[Dmz_B]
+B109 ansible_host=10.136.143.61
+
+[Citrix_Prd]
+A333 ansible_host=10.136.199.41
+A334 ansible_host=10.136.199.42
+A335 ansible_host=10.136.199.43
+A336 ansible_host=10.136.199.44
+
+[Tst:children]
+Test_zone
+Citrix_Stg
+
+[Prd:children]
+Prd_A
+Prd_B
+Citrix_Prd
+Dmz_A
+Dmz_B
+
+[Prd_TI:children]
+Prd_A
+Prd_B
+Dmz_A
+Dmz_B
+

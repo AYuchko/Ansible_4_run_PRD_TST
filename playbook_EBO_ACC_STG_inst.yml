@@ -1,0 +1,137 @@
+---
+- hosts : Tst
+  become : no
+  vars:
+          src_f: /tmp/install/EBO/
+          dest_f: C:\Install\EBO\
+          symbol : \
+          files:
+                  - Kapsch_BLR_EBO2TI_Installation.zip
+                  - Kapsch_BLR_MIV_Installation.zip
+          services:
+                  - Kapsch Contract Autotask Service
+                  - Kapsch EBO2TI DataCollector Service
+                  - Kapsch SttTransfer Autotask Service
+                  - Kapsch EVignette Autotask Service 
+                  - Kapsch VRDB Communication Service
+          iis:
+                  - CboProxy 
+                  - Default Web Site
+          appl:
+                  - Kapsch_BLR_EBO2TI_Installation.exe
+                  - Kapsch_BLR_MIV_Installation.exe
+  vars_prompt:
+         - name: folder
+           prompt: Enter folder name will be created on ACC/STG server
+           private: no
+         - name: srcfolder
+           prompt: Enter local source folder for copying
+           private: no
+ 
+  tasks:
+  - name: Create installation folder on ACC/STG servers
+    win_file:
+            path: C:\Install\EBO\{{folder}}
+            state: directory
+  - block:
+          - name: Copy installation files
+            win_copy:
+                    src: "{{src_f}}{{srcfolder}}/"
+                    dest: "{{dest_f}}{{folder}}"
+            with_fileglob: "/tmp/install/EBO/{{ srcfolder }}/*"
+          - name:  Unzip installation files
+            win_unzip:
+                    src: "{{dest_f}}{{folder}}{{symbol}}{{ item }}"
+                    dest: "{{dest_f}}{{folder}}"
+                    remote_src: yes
+                    delete_archive: yes
+            with_items: "{{files}}"
+          - name: Stop Kapsch Win services
+            win_service:
+                    name: "{{ item }}"
+                    state: stopped
+            with_items: "{{services}}"
+          - name: Check Kapsch Win services status
+            win_service:
+                    name: "{{item}}"
+            with_items: "{{services}}"
+            register: r
+          - debug:
+                 msg:
+                         - "--------------------------------------------------"
+                         - "Service={{item.display_name}} Status={{item.state}}"
+                         - "--------------------------------------------------"
+            with_items:
+                    - "{{r.results}}"
+          - name: Stop IIS
+            win_iis_website:
+                    name: "{{item}}"
+                    state: stopped
+            with_items: "{{iis}}"
+          - pause:
+                  prompt: "{{item}}"
+            with_items: |
+                    ############################################################################
+                    Before continue check if *.sql DB update file required to run on
+                    If required run it manually first ant then press ENTER to continue with playbook
+                    ENTERTER to continue with playbook
+                    #############################################################################
+          - name: Install Kapsch appl's
+            win_command : "{{item}} /S /v/qn"
+            args:
+                    chdir: "{{dest_f}}{{folder}}{{symbol}}"
+            with_items: "{{appl}}"
+          - name:  Start IIS
+            win_iis_website:
+                    name: "{{item}}"
+                    state: started
+            with_items: "{{iis}}"
+          - name: Start Kapsch Win services
+            win_service:
+                    name: "{{item}}"
+                    state: started
+            with_items: "{{services}}"
+            ignore_errors: yes
+
+
+
+
+    when: (inventory_hostname == "ACC") or (inventory_hostname == "STG")
+  - block:
+          - name: Copy installation files for Citrix
+            win_copy:
+                    src: "{{src_f}}{{srcfolder}}/Kapsch_BLR_MIV_Installation.zip"
+                    dest: "{{dest_f}}{{folder}}/Kapsch_BLR_MIV_Installation.zip"
+          - name: Unzip MIV appl Citrix
+            win_unzip:
+                    src: "{{dest_f}}{{folder}}/Kapsch_BLR_MIV_Installation.zip"
+                    dest: "{{dest_f}}{{folder}}/"
+                    remote_src: yes
+                    delete_archive: yes
+          - name: Kill MIV instances
+            win_shell: |
+                    $ProcessActive = Get-Process -Name "MIV" -ErrorAction SilentlyContinue
+                    if($ProcessActive -eq $null)
+                    {break }
+                    else
+                    { Stop-Process -Name "MIV" -Force}
+            ignore_errors: yes
+          - name: Install MIV appl on Citrix farm
+            win_command: "Kapsch_BLR_MIV_Installation.exe /S /v/qn"
+            args:
+                    chdir: "{{dest_f}}{{folder}}{{symbol}}"
+            ignore_errors: yes
+
+
+    when: inventory_hostname in groups["Citrix_Stg"]  
+
+  - name: Final check for artifacts version
+    win_shell: |
+            Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* |
+            Where-Object {($_.DisplayName -Match "Kapsch BLR") -or ($_.DisplayName -Match "EBO2TI")} |
+            Select-Object DisplayName, DisplayVersion, InstallDate
+    register: command_output
+
+  - debug:
+          var: command_output.stdout_lines
+

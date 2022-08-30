@@ -1,0 +1,108 @@
+---
+- hosts : Prd
+  become : no
+  vars:
+          src_f: /tmp/install/EBO/
+          dest_f: C:\Install\EBO\
+          symbol : \
+          files_TI: Kapsch_BLR_EBO2TI_Installation.zip
+          files_MIV: Kapsch_BLR_MIV_Installation.zip
+          services:
+                  - Kapsch Contract Autotask Service
+                  - Kapsch EBO2TI DataCollector Service
+                  - Kapsch SttTransfer Autotask Service
+                  - Kapsch EVignette Autotask Service
+                  - Kapsch ExportDelictLetter Autotask Service
+                  - Kapsch State Bodies Notification Service                    
+          services_TI: Kapsch VRDB Communication Service
+          iis:
+                  - CboProxy 
+                  - Default Web Site
+          iis_TI: EBO2TIService
+          appl_EBO2TI: Kapsch_BLR_EBO2TI_Installation.exe
+          appl_MIV: Kapsch_BLR_MIV_Installation.exe
+  vars_prompt:
+         - name: folder
+           prompt: Enter folder name will be created on ACC/STG server
+           private: no
+         - name: srcfolder
+           prompt: Enter local source folder for copying
+           private: no
+  tasks:
+
+  - block:
+          - name: Create installation folder on all prod servers
+            win_file:
+                    path: C:\Install\EBO\{{folder}}
+                    state: directory
+    when: inventory_hostname in groups ["Prd"]
+
+  - block: 
+          - name: Copy installation zip files EBO2TI
+            win_copy:
+                    src: "{{src_f}}{{srcfolder}}/{{files_TI}}"
+                    dest: "{{dest_f}}{{folder}}"
+                    #with_fileglob: "/tmp/install/EBO/{{ srcfolder }}/{{files_TI}}"
+                    #when: inventory_hostname in groups ["Prd_TI"]
+          
+          - name: Unzip installation files EBO2TI
+            win_unzip:
+                    src: "{{dest_f}}{{folder}}{{symbol}}{{files_TI }}"
+                    dest: "{{dest_f}}{{folder}}"
+                    remote_src: yes
+                    delete_archive: yes
+              #            with_items: "{{files}}"
+    when: inventory_hostname in groups ["Prd_TI"]
+
+  - block: 
+          - name: Copy installation zip files MIV
+            win_copy:
+                    src: "{{src_f}}{{srcfolder}}/{{files_MIV}}"
+                    dest:  "{{dest_f}}{{folder}}"
+          - name: Unzip installation files MIV
+            win_unzip:
+                    src: "{{dest_f}}{{folder}}{{symbol}}{{files_MIV }}"
+                    dest: "{{dest_f}}{{folder}}"
+                    remote_src: yes
+                    delete_archive: yes
+    when: inventory_hostname in groups ["Citrix_Prd"]
+
+  - block:
+          - name: Stop Kapsch VRDB  Win service
+            win_service:
+                    name: "{{ item }}"
+                    state: stopped
+            with_items: "{{services_TI}}"
+
+          - name: Stop IIS VRDB
+            win_iis_website:
+                    name: "{{item}}"
+                    state: stopped
+            with_items: "{{iis_TI}}"
+    when: inventory_hostname in groups ["Dmz_A"]
+
+    ##--Uncomment it for real run--
+    #  - block:
+    #     - name: Stop Kapsch A001  Win service
+    #       win_service:
+    #       name: "{{ item }}"
+    #                state: stopped
+    #       with_items: "{{services}}"
+
+    #     - name: Stop IIS A001
+    #       win_iis_website:
+    #               name: "{{item}}"
+    #               state: stopped
+    #       with_items: "{{iis}}"
+    # when: inventory_hostname == "A001"       
+  - pause:
+          prompt: "{{item}}"
+          with_items: |
+                    ############################################################################
+                    Before continue check if *.sql DB update file required to run on DB
+                    If required run it manually first and then press ENTER to continue with playbook
+                    ENTER to continue with playbook
+                    #############################################################################
+
+
+

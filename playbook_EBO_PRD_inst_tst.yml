@@ -1,0 +1,101 @@
+---
+- hosts : Prd
+  become : no
+  vars:
+          src_f: /tmp/install/EBO/
+          dest_f: C:\Install\EBO\
+          symbol : \
+          files_TI: Kapsch_BLR_EBO2TI_Installation.zip
+          files_MIV: Kapsch_BLR_MIV_Installation.zip
+          services:
+                  - Kapsch Contract Autotask Service
+                  - Kapsch EBO2TI DataCollector Service
+                  - Kapsch SttTransfer Autotask Service
+                  - Kapsch EVignette Autotask Service
+                  - Kapsch ExportDelictLetter Autotask Service
+                  - Kapsch State Bodies Notification Service                    
+          services_TI: Kapsch VRDB Communication Service
+          iis:
+                  - CboProxy 
+                  - Default Web Site
+          iis_TI: EBO2TIService
+          appl_EBO2TI:
+                  - Kapsch_BLR_EBO2TI_Installation.exe
+          appl_MIV:
+                  - Kapsch_BLR_MIV_Installation.exe
+  vars_prompt:
+         - name: folder
+           prompt: Enter folder name will be created on ACC/STG server
+           private: no
+         - name: srcfolder
+           prompt: Enter local source folder for copying
+           private: no
+  tasks:
+
+  - block:
+
+          - name: Check Kapsch A001 Win services status
+            win_service:
+                    name: "{{item}}"
+            with_items:  "{{services}}"   
+            register: r
+          - debug:
+                 msg:
+                         - "##########----CHECK RUNNING SERVICE---#:###########"
+                         - "--------------------------------------------------"
+                         - "Service={{item.display_name}} Status={{item.state}}"
+                         - "--------------------------------------------------"
+            with_items:
+                    - "{{r.results}}"
+    when: inventory_hostname == "A001"
+  - pause:
+          prompt: "{{item}}"
+    with_items: |
+            ############################################################################
+            Before continue check if *.sql DB update file required to run on DB
+            If required run it manually first ant then press ENTER to continue with playbook
+            ENTER to continue with playbook
+            #############################################################################
+  - name: Install Kapsch appl's
+    win_command : "{{item}} /S /v/qn"
+    args:
+            chdir: "{{dest_f}}{{folder}}{{symbol}}"
+    with_items: "{{appl_EBO2TI}}"
+    when: inventory_hostname in groups["Prd_B"]
+
+  - block: #----Install MIV_Citrix_STG---#
+          - name: Kill MIV instances
+            win_shell: |
+                    $ProcessActive = Get-Process -Name "MIV" -ErrorAction SilentlyContinue
+                    if($ProcessActive -eq $null)
+                    {break }
+                    else
+                    { Stop-Process -Name "MIV" -Force}
+            ignore_errors: yes
+          - name: Install MIV appl on Citrix farm
+            win_command: "Kapsch_BLR_MIV_Installation.exe /S /v/qn"
+            args:
+                    chdir: "{{dest_f}}{{folder}}{{symbol}}"
+    when: inventory_hostname == "A336" 
+
+  - name: Copy log file on A001
+    win_copy:
+            src: c:\ProgramData\Log_config\CBO_Proxy\Web.config
+            dest: c:\Kapsch\EBO2TI\CboProxy\Web.config
+            remote_src: yes
+    when: inventory_hostname == "A001"
+
+
+  - block: #----Final Check---#           
+          - name: Final check for artifacts version
+            win_shell: |
+                    Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* |
+                    Where-Object {($_.DisplayName -Match "Kapsch BLR") -or ($_.DisplayName -Match "EBO2TI")} |
+                    Select-Object DisplayName, DisplayVersion, InstallDate
+            register: command_output
+          - debug:
+                  var: command_output.stdout_lines
+            ignore_errors: yes      
+    when: inventory_hostname in lookup('inventory_hostnames', 'Prd_A:Prd_B')
+
+
